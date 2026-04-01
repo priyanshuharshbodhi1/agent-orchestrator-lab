@@ -474,6 +474,124 @@ describe("restore", () => {
     expect(createCall.launchCommand).toBe("claude --resume abc123");
   });
 
+  it("passes resolved worker permissions to getRestoreCommand", async () => {
+    const wsPath = join(tmpDir, "ws-app-restore-worker-permissions");
+    mkdirSync(wsPath, { recursive: true });
+
+    const mockAgentWithRestore: Agent = {
+      ...mockAgent,
+      getRestoreCommand: vi
+        .fn()
+        .mockResolvedValue("claude --resume abc123 --dangerously-skip-permissions"),
+    };
+
+    const registryWithAgentRestore: PluginRegistry = {
+      ...mockRegistry,
+      get: vi.fn().mockImplementation((slot: string) => {
+        if (slot === "runtime") return mockRuntime;
+        if (slot === "agent") return mockAgentWithRestore;
+        if (slot === "workspace") return mockWorkspace;
+        return null;
+      }),
+    };
+
+    const configWithWorkerPermissions: OrchestratorConfig = {
+      ...config,
+      projects: {
+        ...config.projects,
+        "my-app": {
+          ...config.projects["my-app"],
+          agentConfig: {
+            permissions: "suggest",
+          },
+          worker: {
+            agentConfig: {
+              permissions: "permissionless",
+            },
+          },
+        },
+      },
+    };
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: wsPath,
+      branch: "feat/TEST-1",
+      status: "errored",
+      project: "my-app",
+      runtimeHandle: JSON.stringify(makeHandle("rt-old")),
+    });
+
+    const sm = createSessionManager({
+      config: configWithWorkerPermissions,
+      registry: registryWithAgentRestore,
+    });
+    await sm.restore("app-1");
+
+    expect(mockAgentWithRestore.getRestoreCommand).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        agentConfig: expect.objectContaining({ permissions: "permissionless" }),
+      }),
+    );
+  });
+
+  it("keeps orchestrator restore permissionless even when shared config is restrictive", async () => {
+    const wsPath = join(tmpDir, "ws-app-orchestrator-restore-permissions");
+    mkdirSync(wsPath, { recursive: true });
+
+    const mockAgentWithRestore: Agent = {
+      ...mockAgent,
+      getRestoreCommand: vi
+        .fn()
+        .mockResolvedValue("claude --resume abc123 --dangerously-skip-permissions"),
+    };
+
+    const registryWithAgentRestore: PluginRegistry = {
+      ...mockRegistry,
+      get: vi.fn().mockImplementation((slot: string) => {
+        if (slot === "runtime") return mockRuntime;
+        if (slot === "agent") return mockAgentWithRestore;
+        if (slot === "workspace") return mockWorkspace;
+        return null;
+      }),
+    };
+
+    const configWithSharedPermissions: OrchestratorConfig = {
+      ...config,
+      projects: {
+        ...config.projects,
+        "my-app": {
+          ...config.projects["my-app"],
+          agentConfig: {
+            permissions: "suggest",
+          },
+        },
+      },
+    };
+
+    writeMetadata(sessionsDir, "app-orchestrator", {
+      worktree: wsPath,
+      branch: "main",
+      status: "errored",
+      project: "my-app",
+      role: "orchestrator",
+      runtimeHandle: JSON.stringify(makeHandle("rt-old")),
+    });
+
+    const sm = createSessionManager({
+      config: configWithSharedPermissions,
+      registry: registryWithAgentRestore,
+    });
+    await sm.restore("app-orchestrator");
+
+    expect(mockAgentWithRestore.getRestoreCommand).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        agentConfig: expect.objectContaining({ permissions: "permissionless" }),
+      }),
+    );
+  });
+
   it("falls back to getLaunchCommand when getRestoreCommand returns null", async () => {
     const wsPath = join(tmpDir, "ws-app-1");
     mkdirSync(wsPath, { recursive: true });
