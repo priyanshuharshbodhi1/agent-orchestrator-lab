@@ -785,6 +785,47 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     return located;
   }
 
+  async function findRestorableSameIssueSessionId(options: {
+    projectId: string;
+    project: ProjectConfig;
+    sessionsDir: string;
+    issueId: string;
+    requiredAgentName?: string;
+  }): Promise<string | undefined> {
+    const { projectId, project, sessionsDir, issueId, requiredAgentName } = options;
+    const candidates = sortSessionIdsForReuse([
+      ...listMetadata(sessionsDir),
+      ...listArchivedSessionIds(sessionsDir),
+    ]);
+
+    for (const candidateId of candidates) {
+      const raw =
+        readMetadataRaw(sessionsDir, candidateId) ?? readArchivedMetadataRaw(sessionsDir, candidateId);
+      if (!raw) continue;
+      if (raw["issue"] !== issueId) continue;
+      if (isOrchestratorSessionRecord(candidateId, raw)) continue;
+
+      const selection = resolveSelectionForSession(project, candidateId, raw);
+      if (requiredAgentName && selection.agentName !== requiredAgentName) continue;
+
+      let modifiedAt: Date | undefined;
+      try {
+        modifiedAt = statSync(join(sessionsDir, candidateId)).mtime;
+      } catch {
+        modifiedAt = undefined;
+      }
+
+      const session = metadataToSession(candidateId, raw, projectId, undefined, modifiedAt);
+      const plugins = resolvePlugins(project, selection.agentName);
+      await enrichSessionWithRuntimeState(session, plugins, true);
+      if (isRestorable(session)) {
+        return candidateId;
+      }
+    }
+
+    return undefined;
+  }
+
   /**
    * Ensure session has a runtime handle (fabricate one if missing) and enrich
    * with live runtime state + activity detection. Used by both list() and get().
@@ -1028,6 +1069,30 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       lineage: spawnConfig.lineage,
       siblings: spawnConfig.siblings,
     });
+
+    const requestedSameIssueAgent = spawnConfig.agent ? selection.agentName : undefined;
+    const sameIssueSessionId =
+      selection.agentName !== "opencode" &&
+      spawnConfig.issueId &&
+      spawnConfig.branch === undefined &&
+      spawnConfig.subagent === undefined
+        ? await findRestorableSameIssueSessionId({
+            projectId: spawnConfig.projectId,
+            project,
+            sessionsDir,
+            issueId: spawnConfig.issueId,
+            requiredAgentName: requestedSameIssueAgent,
+          })
+        : undefined;
+    if (sameIssueSessionId) {
+      const restored = await restore(sameIssueSessionId);
+      try {
+        await send(restored.id, composedPrompt);
+      } catch {
+        // Non-fatal: the worker session is running and can still be resumed manually.
+      }
+      return restored;
+    }
 
     // Get agent launch config and create runtime — clean up workspace on failure
     const opencodeIssueSessionStrategy = project.opencodeIssueSessionStrategy ?? "reuse";
