@@ -248,6 +248,77 @@ describe("spawn", () => {
     expect(meta!.issue).toBe("INT-42");
   });
 
+  it("restores the same worker session when respawning the same issue", async () => {
+    const wsPath = join(tmpDir, "ws-app-7");
+    mkdirSync(wsPath, { recursive: true });
+    writeMetadata(sessionsDir, "app-7", {
+      worktree: wsPath,
+      branch: "feat/INT-42",
+      status: "killed",
+      project: "my-app",
+      issue: "INT-42",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      runtimeHandle: JSON.stringify(makeHandle("rt-old")),
+    });
+
+    const sm = createSessionManager({ config, registry: mockRegistry });
+
+    vi.useFakeTimers();
+    try {
+      const spawnPromise = sm.spawn({ projectId: "my-app", issueId: "INT-42" });
+      await vi.advanceTimersByTimeAsync(10_000);
+      const session = await spawnPromise;
+
+      expect(session.id).toBe("app-7");
+      expect(session.branch).toBe("feat/INT-42");
+    } finally {
+      vi.useRealTimers();
+    }
+
+    expect(mockRuntime.destroy).toHaveBeenCalledWith(makeHandle("rt-old"));
+    expect(mockRuntime.create).toHaveBeenCalledTimes(1);
+    expect(mockRuntime.sendMessage).toHaveBeenCalledWith(
+      makeHandle("rt-1"),
+      expect.stringContaining("Work on issue: INT-42"),
+    );
+
+    const meta = readMetadataRaw(sessionsDir, "app-7");
+    expect(meta?.["runtimeHandle"]).toBe(JSON.stringify(makeHandle("rt-1")));
+    expect(meta?.["restoredAt"]).toBeDefined();
+  });
+
+  it("restores archived same-issue sessions instead of creating a new worker", async () => {
+    const wsPath = join(tmpDir, "ws-app-9");
+    mkdirSync(wsPath, { recursive: true });
+    writeMetadata(sessionsDir, "app-9", {
+      worktree: wsPath,
+      branch: "feat/INT-42",
+      status: "killed",
+      project: "my-app",
+      issue: "INT-42",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      runtimeHandle: JSON.stringify(makeHandle("rt-old-archived")),
+    });
+    deleteMetadata(sessionsDir, "app-9");
+
+    const sm = createSessionManager({ config, registry: mockRegistry });
+
+    vi.useFakeTimers();
+    try {
+      const spawnPromise = sm.spawn({ projectId: "my-app", issueId: "INT-42" });
+      await vi.advanceTimersByTimeAsync(10_000);
+      const session = await spawnPromise;
+
+      expect(session.id).toBe("app-9");
+    } finally {
+      vi.useRealTimers();
+    }
+
+    const meta = readMetadataRaw(sessionsDir, "app-9");
+    expect(meta).not.toBeNull();
+    expect(meta?.["restoredAt"]).toBeDefined();
+  });
+
   it("reuses OpenCode session mapping by issue when available", async () => {
     const opencodeAgent: Agent = {
       ...mockAgent,
@@ -1996,4 +2067,3 @@ describe("spawn", () => {
     });
   });
 });
-
