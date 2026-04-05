@@ -1,3 +1,12 @@
+import os from "node:os";
+vi.mock("node:os", async (importOriginal) => {
+  const actual = await importOriginal<any>();
+  return {
+    ...actual,
+    homedir: vi.fn(() => "/tmp/nonexistent")
+  };
+});
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { NotifyAction, OrchestratorEvent } from "@composio/ao-core";
 import { create, manifest } from "./index.js";
@@ -19,6 +28,7 @@ function makeEvent(overrides: Partial<OrchestratorEvent> = {}): OrchestratorEven
 describe("notifier-openclaw", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    vi.spyOn(os, "homedir").mockReturnValue("/tmp/nonexistent-home-for-test");
     delete process.env.OPENCLAW_HOOKS_TOKEN;
   });
 
