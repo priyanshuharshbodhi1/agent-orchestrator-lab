@@ -26,7 +26,16 @@ export async function GET() {
  */
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json();
+    let body: unknown;
+    try {
+      body = await req.json();
+    } catch (err: unknown) {
+      if (err instanceof SyntaxError) {
+        return NextResponse.json({ error: "Malformed JSON" }, { status: 400 });
+      }
+      throw err;
+    }
+
     const { issueId, projectId, action, comment } = body as {
       issueId: string;
       projectId: string;
