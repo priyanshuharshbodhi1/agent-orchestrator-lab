@@ -1,6 +1,6 @@
 import os from "node:os";
 vi.mock("node:os", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("node:os")>();
+  const actual = await importOriginal<any>();
   return {
     ...actual,
     homedir: vi.fn(() => "/tmp/nonexistent")
