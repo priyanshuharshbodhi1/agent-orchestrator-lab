@@ -1,5 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { NotifyAction, OrchestratorEvent } from "@composio/ao-core";
+
+vi.mock("node:fs", () => ({
+  existsSync: () => false,
+  readFileSync: vi.fn(),
+}));
+
 import { create, manifest } from "./index.js";
 
 function makeEvent(overrides: Partial<OrchestratorEvent> = {}): OrchestratorEvent {

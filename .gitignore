@@ -64,6 +64,7 @@ CLAUDE.md
 AGENTS.md
 .claude/
 .opencode/
+.ao/
 
 # OS-specific files
 .DS_Store
