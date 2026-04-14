@@ -2340,18 +2340,23 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
 
     // 7. Get launch command — try restore command first, fall back to fresh launch
     let launchCommand: string;
+    const resolvedAgentConfig = {
+      ...selection.agentConfig,
+      ...(selection.role === "orchestrator" ? { permissions: "permissionless" as const } : {}),
+      ...(session.metadata?.opencodeSessionId
+        ? { opencodeSessionId: session.metadata.opencodeSessionId }
+        : {}),
+    };
+    const effectiveProject = {
+      ...project,
+      agentConfig: {
+        ...(project.agentConfig ?? {}),
+        ...resolvedAgentConfig,
+      },
+    };
     const agentLaunchConfig = {
       sessionId,
-      projectConfig: {
-        ...project,
-        agentConfig: {
-          ...selection.agentConfig,
-          ...(selection.role === "orchestrator" ? { permissions: "permissionless" as const } : {}),
-          ...(session.metadata?.opencodeSessionId
-            ? { opencodeSessionId: session.metadata.opencodeSessionId }
-            : {}),
-        },
-      },
+      projectConfig: effectiveProject,
       issueId: session.issueId ?? undefined,
       permissions: selection.role === "orchestrator" ? "permissionless" : selection.permissions,
       model: selection.model,
@@ -2359,7 +2364,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     };
 
     if (plugins.agent.getRestoreCommand) {
-      const restoreCmd = await plugins.agent.getRestoreCommand(session, project);
+      const restoreCmd = await plugins.agent.getRestoreCommand(session, effectiveProject);
       launchCommand = restoreCmd ?? plugins.agent.getLaunchCommand(agentLaunchConfig);
     } else {
       launchCommand = plugins.agent.getLaunchCommand(agentLaunchConfig);
